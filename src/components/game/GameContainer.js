@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useInterval } from '../../hooks/useInterval';
 import Player from './Player';
 import Aliens from './Aliens';
 import Projectiles from './Projectiles';
@@ -7,55 +8,131 @@ import useGameState from './GameState';
 
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
+const PLAYER_SPEED = 5;
+const BULLET_SPEED = 7;
+const ALIEN_SPEED = 1;
+const ALIEN_DROP = 30;
 
 const GameContainer = () => {
-  const [playerPosition, setPlayerPosition] = useState({ x: GAME_WIDTH / 2, y: GAME_HEIGHT - 60 });
+  const [playerPosition, setPlayerPosition] = useState({ 
+    x: GAME_WIDTH / 2 - 25,
+    y: GAME_HEIGHT - 60,
+    width: 50,
+    height: 40
+  });
+  
   const [aliens, setAliens] = useState([]);
   const [projectiles, setProjectiles] = useState([]);
+  const [alienDirection, setAlienDirection] = useState(1);
   const { gameState, updateScore, loseLife, togglePause, resetGame } = useGameState();
 
-  const handlePlayerMove = useCallback((direction, speed) => {
-    setPlayerPosition(prev => {
-      const newX = direction === 'left' 
-        ? Math.max(0, prev.x - speed)
-        : Math.min(GAME_WIDTH - 40, prev.x + speed);
-      
-      return {
-        ...prev,
-        x: newX
-      };
-    });
+  // Initialize aliens
+  useEffect(() => {
+    const initialAliens = [];
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 8; col++) {
+        initialAliens.push({
+          x: col * 70 + 150,
+          y: row * 60 + 50,
+          width: 40,
+          height: 30,
+        });
+      }
+    }
+    setAliens(initialAliens);
   }, []);
 
-  const handlePlayerShoot = useCallback((playerPos) => {
-    if (gameState.gameOver || gameState.isPaused) return;
+  const handlePlayerMove = useCallback((direction) => {
+    if (gameState.gameOver) return;
+    
+    setPlayerPosition(prev => {
+      const newX = direction === 'left'
+        ? Math.max(0, prev.x - PLAYER_SPEED)
+        : Math.min(GAME_WIDTH - prev.width, prev.x + PLAYER_SPEED);
+      return { ...prev, x: newX };
+    });
+  }, [gameState.gameOver]);
 
-    setProjectiles(prev => [...prev, {
-      x: playerPos.x + 18, // Center the bullet on the player
-      y: playerPos.y,
-      type: 'player'
-    }]);
-  }, [gameState.gameOver, gameState.isPaused]);
+  const handlePlayerShoot = useCallback(() => {
+    if (gameState.gameOver) return;
 
-  useEffect(() => {
-    if (gameState.gameOver || gameState.isPaused) return;
+    const now = Date.now();
+    setProjectiles(prev => {
+      if (prev.length === 0 || now - prev[prev.length - 1].timestamp > 250) {
+        return [...prev, {
+          x: playerPosition.x + playerPosition.width / 2 - 2,
+          y: playerPosition.y,
+          width: 4,
+          height: 10,
+          type: 'player',
+          timestamp: now,
+        }];
+      }
+      return prev;
+    });
+  }, [gameState.gameOver, playerPosition]);
 
-    const gameLoop = setInterval(() => {
-      // Update projectiles
-      setProjectiles(prev => prev.map(p => ({
-        ...p,
-        y: p.y + (p.type === 'player' ? -5 : 3)
-      })).filter(p => p.y > 0 && p.y < GAME_HEIGHT));
+  // Update projectiles and check collisions
+  useInterval(() => {
+    if (gameState.gameOver) return;
 
-      // Update aliens
-      // Add alien movement logic here
+    setProjectiles(prev => prev.filter(bullet => {
+      bullet.y -= BULLET_SPEED;
+      return bullet.y > 0;
+    }));
 
-      // Check collisions
-      // Add collision detection logic here
-    }, 16); // ~60 FPS
+    setProjectiles(prev => prev.filter(bullet => {
+      let hit = false;
+      setAliens(prevAliens => prevAliens.filter(alien => {
+        const collision = !(bullet.x > alien.x + alien.width ||
+          bullet.x + bullet.width < alien.x ||
+          bullet.y > alien.y + alien.height ||
+          bullet.y + bullet.height < alien.y);
+        
+        if (collision) {
+          hit = true;
+          updateScore(100);
+        }
+        return !collision;
+      }));
+      return !hit;
+    }));
+  }, 16);
 
-    return () => clearInterval(gameLoop);
-  }, [gameState.gameOver, gameState.isPaused]);
+  // Update alien positions
+  useInterval(() => {
+    if (gameState.gameOver) return;
+
+    let shouldChangeDirection = false;
+    setAliens(prev => prev.map(alien => {
+      const newX = alien.x + ALIEN_SPEED * alienDirection;
+      if (newX <= 0 || newX >= GAME_WIDTH - alien.width) {
+        shouldChangeDirection = true;
+      }
+      return alien;
+    }));
+
+    if (shouldChangeDirection) {
+      setAlienDirection(prev => -prev);
+      setAliens(prev => prev.map(alien => ({
+        ...alien,
+        y: alien.y + ALIEN_DROP,
+      })));
+    } else {
+      setAliens(prev => prev.map(alien => ({
+        ...alien,
+        x: alien.x + ALIEN_SPEED * alienDirection,
+      })));
+    }
+
+    setAliens(prev => {
+      const alienReachedBottom = prev.some(alien => alien.y + alien.height >= playerPosition.y);
+      if (alienReachedBottom) {
+        gameState.gameOver = true;
+      }
+      return prev;
+    });
+  }, 50);
 
   return (
     <div 
