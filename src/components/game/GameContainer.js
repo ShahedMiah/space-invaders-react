@@ -14,27 +14,33 @@ const GameContainer = () => {
   const [projectiles, setProjectiles] = useState([]);
   const { gameState, updateScore, loseLife, togglePause, resetGame } = useGameState();
 
-  const handlePlayerMove = useCallback((direction) => {
-    setPlayerPosition(prev => ({
-      ...prev,
-      x: Math.max(0, Math.min(GAME_WIDTH - 40, prev.x + (direction === 'left' ? -5 : 5)))
-    }));
+  const handlePlayerMove = useCallback((direction, speed) => {
+    setPlayerPosition(prev => {
+      const newX = direction === 'left' 
+        ? Math.max(0, prev.x - speed)
+        : Math.min(GAME_WIDTH - 40, prev.x + speed);
+      
+      return {
+        ...prev,
+        x: newX
+      };
+    });
   }, []);
 
-  const handlePlayerShoot = useCallback(() => {
+  const handlePlayerShoot = useCallback((playerPos) => {
     if (gameState.gameOver || gameState.isPaused) return;
 
     setProjectiles(prev => [...prev, {
-      x: playerPosition.x + 18,
-      y: playerPosition.y,
+      x: playerPos.x + 18, // Center the bullet on the player
+      y: playerPos.y,
       type: 'player'
     }]);
-  }, [playerPosition, gameState.gameOver, gameState.isPaused]);
+  }, [gameState.gameOver, gameState.isPaused]);
 
   useEffect(() => {
     if (gameState.gameOver || gameState.isPaused) return;
 
-    const gameLoop = requestAnimationFrame(() => {
+    const gameLoop = setInterval(() => {
       // Update projectiles
       setProjectiles(prev => prev.map(p => ({
         ...p,
@@ -46,9 +52,9 @@ const GameContainer = () => {
 
       // Check collisions
       // Add collision detection logic here
-    });
+    }, 16); // ~60 FPS
 
-    return () => cancelAnimationFrame(gameLoop);
+    return () => clearInterval(gameLoop);
   }, [gameState.gameOver, gameState.isPaused]);
 
   return (
