@@ -8,12 +8,15 @@ import useGameState from './GameState';
 
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
-const PLAYER_SPEED = 5;
 const BULLET_SPEED = 7;
 const ALIEN_SPEED = 1;
 const ALIEN_DROP = 30;
 
 const GameContainer = () => {
+  // Game state management
+  const { gameState, updateScore, loseLife, resetGame } = useGameState();
+  
+  // Entity states
   const [playerPosition, setPlayerPosition] = useState({ 
     x: GAME_WIDTH / 2 - 25,
     y: GAME_HEIGHT - 60,
@@ -24,7 +27,6 @@ const GameContainer = () => {
   const [aliens, setAliens] = useState([]);
   const [projectiles, setProjectiles] = useState([]);
   const [alienDirection, setAlienDirection] = useState(1);
-  const { gameState, updateScore, loseLife, togglePause, resetGame } = useGameState();
 
   // Initialize aliens
   useEffect(() => {
@@ -42,26 +44,29 @@ const GameContainer = () => {
     setAliens(initialAliens);
   }, []);
 
-  const handlePlayerMove = useCallback((direction) => {
+  // Player movement handler
+  const handlePlayerMove = useCallback((direction, speed) => {
     if (gameState.gameOver) return;
     
     setPlayerPosition(prev => {
       const newX = direction === 'left'
-        ? Math.max(0, prev.x - PLAYER_SPEED)
-        : Math.min(GAME_WIDTH - prev.width, prev.x + PLAYER_SPEED);
+        ? Math.max(0, prev.x - speed)
+        : Math.min(GAME_WIDTH - prev.width, prev.x + speed);
       return { ...prev, x: newX };
     });
   }, [gameState.gameOver]);
 
-  const handlePlayerShoot = useCallback(() => {
+  // Player shooting handler
+  const handlePlayerShoot = useCallback((playerPos) => {
     if (gameState.gameOver) return;
 
     const now = Date.now();
     setProjectiles(prev => {
+      // Implement shooting cooldown
       if (prev.length === 0 || now - prev[prev.length - 1].timestamp > 250) {
         return [...prev, {
-          x: playerPosition.x + playerPosition.width / 2 - 2,
-          y: playerPosition.y,
+          x: playerPos.x + playerPos.width / 2 - 2,
+          y: playerPos.y,
           width: 4,
           height: 10,
           type: 'player',
@@ -70,79 +75,88 @@ const GameContainer = () => {
       }
       return prev;
     });
-  }, [gameState.gameOver, playerPosition]);
+  }, [gameState.gameOver]);
 
-  // Update projectiles and check collisions
+  // Projectile movement and collision detection
   useInterval(() => {
     if (gameState.gameOver) return;
 
-    setProjectiles(prev => prev.filter(bullet => {
-      bullet.y -= BULLET_SPEED;
-      return bullet.y > 0;
-    }));
+    // Update projectile positions
+    setProjectiles(prev => 
+      prev
+        .map(bullet => ({
+          ...bullet,
+          y: bullet.y - BULLET_SPEED
+        }))
+        .filter(bullet => bullet.y > 0)
+    );
 
+    // Check for collisions
     setProjectiles(prev => prev.filter(bullet => {
       let hit = false;
+      
       setAliens(prevAliens => prevAliens.filter(alien => {
-        const collision = !(bullet.x > alien.x + alien.width ||
-          bullet.x + bullet.width < alien.x ||
-          bullet.y > alien.y + alien.height ||
-          bullet.y + bullet.height < alien.y);
-        
+        const collision = checkCollision(bullet, alien);
         if (collision) {
           hit = true;
           updateScore(100);
         }
         return !collision;
       }));
+      
       return !hit;
     }));
   }, 16);
 
-  // Update alien positions
+  // Alien movement
   useInterval(() => {
     if (gameState.gameOver) return;
 
-    let shouldChangeDirection = false;
-    setAliens(prev => prev.map(alien => {
+    // Check if aliens need to change direction
+    const needsDirectionChange = aliens.some(alien => {
       const newX = alien.x + ALIEN_SPEED * alienDirection;
-      if (newX <= 0 || newX >= GAME_WIDTH - alien.width) {
-        shouldChangeDirection = true;
-      }
-      return alien;
-    }));
+      return newX <= 0 || newX >= GAME_WIDTH - alien.width;
+    });
 
-    if (shouldChangeDirection) {
+    if (needsDirectionChange) {
       setAlienDirection(prev => -prev);
       setAliens(prev => prev.map(alien => ({
         ...alien,
-        y: alien.y + ALIEN_DROP,
+        y: alien.y + ALIEN_DROP
       })));
     } else {
       setAliens(prev => prev.map(alien => ({
         ...alien,
-        x: alien.x + ALIEN_SPEED * alienDirection,
+        x: alien.x + ALIEN_SPEED * alienDirection
       })));
     }
 
-    setAliens(prev => {
-      const alienReachedBottom = prev.some(alien => alien.y + alien.height >= playerPosition.y);
-      if (alienReachedBottom) {
-        gameState.gameOver = true;
-      }
-      return prev;
-    });
+    // Check for game over condition
+    const alienReachedBottom = aliens.some(alien => 
+      alien.y + alien.height >= playerPosition.y
+    );
+
+    if (alienReachedBottom) {
+      loseLife();
+    }
   }, 50);
+
+  // Collision detection helper
+  const checkCollision = (rect1, rect2) => {
+    return !(
+      rect1.x > rect2.x + rect2.width ||
+      rect1.x + rect1.width < rect2.x ||
+      rect1.y > rect2.y + rect2.height ||
+      rect1.y + rect1.height < rect2.y
+    );
+  };
 
   return (
     <div 
-      className="game-container"
+      className="relative w-full h-full bg-black"
       style={{
-        position: 'relative',
-        width: `${GAME_WIDTH}px`,
-        height: `${GAME_HEIGHT}px`,
-        backgroundColor: 'black',
-        overflow: 'hidden'
+        width: GAME_WIDTH,
+        height: GAME_HEIGHT,
       }}
     >
       <GameHUD 
@@ -155,12 +169,19 @@ const GameContainer = () => {
         onMove={handlePlayerMove}
         onShoot={handlePlayerShoot}
       />
-      <Aliens 
-        aliens={aliens}
-      />
-      <Projectiles 
-        projectiles={projectiles}
-      />
+      <Aliens aliens={aliens} />
+      <Projectiles projectiles={projectiles} />
+
+      {gameState.gameOver && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
+          <button 
+            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+            onClick={resetGame}
+          >
+            Play Again
+          </button>
+        </div>
+      )}
     </div>
   );
 };
