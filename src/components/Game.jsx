@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { PlayerShip, Alien, PowerUp } from './GameGraphics';
+import { PlayerShip, Alien } from './GameGraphics';
 
 const ALIEN_SPEED = 1;
 const ALIEN_DROP = 20;
@@ -8,35 +8,49 @@ const SCREEN_HEIGHT = 600;
 const BULLET_SPEED = 7;
 const POWERUP_SPEED = 2;
 
-export const HomeScreen = ({ onStart, highScores }) => (
-  <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white">
-    <h1 className="text-4xl mb-8">Space Invaders</h1>
-    <button
-      onClick={onStart}
-      className="px-6 py-3 bg-indigo-600 rounded-lg hover:bg-indigo-700 mb-8"
-    >
-      Start Game
-    </button>
-    <div className="text-left">
-      <h2 className="text-2xl mb-4">High Scores</h2>
-      <ul>
-        {highScores.map((score, index) => (
-          <li key={index} className="mb-2">
-            {index + 1}. {score}
-          </li>
-        ))}
-      </ul>
+export const HomeScreen = ({ onStart, highScores }) => {
+  // Re-fetch high scores when showing home screen
+  const [currentHighScores, setCurrentHighScores] = useState(() => {
+    const saved = localStorage.getItem('highScores');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    const saved = localStorage.getItem('highScores');
+    setCurrentHighScores(saved ? JSON.parse(saved) : []);
+  }, []);
+
+  return (
+    <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white">
+      <h1 className="text-4xl mb-8">Space Invaders</h1>
+      <button
+        onClick={onStart}
+        className="px-6 py-3 bg-indigo-600 rounded-lg hover:bg-indigo-700 mb-8"
+      >
+        Start Game
+      </button>
+      <div className="text-left">
+        <h2 className="text-2xl mb-4">High Scores</h2>
+        <ul>
+          {currentHighScores.map((score, index) => (
+            <li key={index} className="mb-2">
+              {index + 1}. {score}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export const GameOverScreen = ({ score, onReplay, onHome }) => {
   const handleHome = () => {
-    // Save score before going home
     const saved = localStorage.getItem('highScores');
-    const highScores = saved ? JSON.parse(saved) : [];
-    const newScores = [...highScores, score].sort((a, b) => b - a).slice(0, 5);
-    localStorage.setItem('highScores', JSON.stringify(newScores));
+    const currentScores = saved ? JSON.parse(saved) : [];
+    if (score > 0) {
+      const newScores = [...currentScores, score].sort((a, b) => b - a).slice(0, 5);
+      localStorage.setItem('highScores', JSON.stringify(newScores));
+    }
     onHome();
   };
 
@@ -65,20 +79,12 @@ export const GameOverScreen = ({ score, onReplay, onHome }) => {
 export const GameContainer = () => {
   const [gameState, setGameState] = useState('home');
   const [score, setScore] = useState(0);
-  const [highScores, setHighScores] = useState(() => {
-    const saved = localStorage.getItem('highScores');
-    return saved ? JSON.parse(saved) : [];
-  });
   const [playerPosition, setPlayerPosition] = useState({ x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT - 50 });
   const [aliens, setAliens] = useState([]);
   const [bullets, setBullets] = useState([]);
   const [lastShot, setLastShot] = useState(0);
   const [powerUps, setPowerUps] = useState([]);
   const [playerPowerUp, setPlayerPowerUp] = useState(null);
-
-  useEffect(() => {
-    localStorage.setItem('highScores', JSON.stringify(highScores));
-  }, [highScores]);
 
   const initializeGame = useCallback(() => {
     const initialAliens = Array.from({ length: 20 }, (_, i) => ({
@@ -98,7 +104,7 @@ export const GameContainer = () => {
   }, []);
 
   const spawnPowerUp = useCallback(() => {
-    if (Math.random() < 0.02) { // 2% chance each update
+    if (Math.random() < 0.02) {
       const type = Math.random() < 0.5 ? 'rapidFire' : 'multiShot';
       setPowerUps(prev => [...prev, {
         id: Date.now(),
@@ -180,7 +186,7 @@ export const GameContainer = () => {
         if (collected) {
           setPlayerPowerUp({
             type: powerUp.type,
-            expiresAt: Date.now() + 10000 // 10 seconds
+            expiresAt: Date.now() + 10000
           });
           return false;
         }
@@ -216,11 +222,14 @@ export const GameContainer = () => {
   }, [playerPosition.y]);
 
   const handleGameOver = useCallback(() => {
-    const newScores = [...highScores, score].sort((a, b) => b - a).slice(0, 5);
-    setHighScores(newScores);
-    localStorage.setItem('highScores', JSON.stringify(newScores));
+    const saved = localStorage.getItem('highScores');
+    const currentScores = saved ? JSON.parse(saved) : [];
+    if (score > 0) {
+      const newScores = [...currentScores, score].sort((a, b) => b - a).slice(0, 5);
+      localStorage.setItem('highScores', JSON.stringify(newScores));
+    }
     setGameState('gameOver');
-  }, [score, highScores]);
+  }, [score]);
 
   const movePlayer = useCallback((direction) => {
     setPlayerPosition(prev => ({
@@ -256,7 +265,7 @@ export const GameContainer = () => {
   }, [gameState, updateAliens, updateBullets, updatePowerUps, updatePowerUpStatus, spawnPowerUp]);
 
   if (gameState === 'home') {
-    return <HomeScreen onStart={initializeGame} highScores={highScores} />;
+    return <HomeScreen onStart={initializeGame} />;
   }
 
   if (gameState === 'gameOver') {
